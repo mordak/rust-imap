@@ -3,10 +3,13 @@
 
 use crate::client::Session;
 use crate::error::{Error, Result};
+use crate::parse::parse_idle;
+use crate::types::UnsolicitedResponse;
 #[cfg(feature = "tls")]
 use native_tls::TlsStream;
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
+use std::sync::mpsc;
 use std::time::Duration;
 
 /// `Handle` allows a client to block waiting for changes to the remote mailbox.
@@ -27,6 +30,7 @@ use std::time::Duration;
 #[derive(Debug)]
 pub struct Handle<'a, T: Read + Write> {
     session: &'a mut Session<T>,
+    response_tx: Option<mpsc::Sender<UnsolicitedResponse>>,
     keepalive: Duration,
     done: bool,
 }
@@ -58,6 +62,7 @@ impl<'a, T: Read + Write + 'a> Handle<'a, T> {
     pub(crate) fn make(session: &'a mut Session<T>) -> Result<Self> {
         let mut h = Handle {
             session,
+            response_tx: None,
             keepalive: Duration::from_secs(29 * 60),
             done: false,
         };
@@ -102,8 +107,9 @@ impl<'a, T: Read + Write + 'a> Handle<'a, T> {
     /// This is necessary so that we can keep using the inner `Session` in `wait_keepalive`.
     fn wait_inner(&mut self, reconnect: bool) -> Result<WaitOutcome> {
         let mut v = Vec::new();
+        // FIXME: parse_idle returns remaining data, so capture it and update
         loop {
-            let result = match self.session.readline(&mut v).map(|_| ()) {
+            let result = match self.session.readline(&mut v) {
                 Err(Error::Io(ref e))
                     if e.kind() == io::ErrorKind::TimedOut
                         || e.kind() == io::ErrorKind::WouldBlock =>
@@ -113,9 +119,27 @@ impl<'a, T: Read + Write + 'a> Handle<'a, T> {
                         self.init()?;
                         return self.wait_inner(reconnect);
                     }
-                    Ok(WaitOutcome::TimedOut)
+                    return Ok(WaitOutcome::TimedOut);
                 }
-                Ok(()) => Ok(WaitOutcome::MailboxChanged),
+                Ok(_len) => {
+                    match parse_idle(&v, self.response_tx.as_mut()) {
+                        (rest, Ok(())) => {
+                            // FIXME: update remaining and continue
+                            // User hasn't asked for unsolicited responses, so
+                            // return to them to let them know something changed.
+                            if self.response_tx.is_none() {
+                                return Ok(WaitOutcome::MailboxChanged);
+                            }
+                        }
+                        (rest, Err(r)) => {
+                            // FIXME: Handle incomplete, etc., and update
+                            // lines and stuff, and maybe bail if we get a
+                            // bad error?
+                            todo!()
+                        }
+                    }
+                    todo!()
+                }
                 Err(r) => Err(r),
             }?;
 
@@ -131,6 +155,11 @@ impl<'a, T: Read + Write + 'a> Handle<'a, T> {
     /// Block until the selected mailbox changes.
     pub fn wait(mut self) -> Result<()> {
         self.wait_inner(true).map(|_| ())
+    }
+
+    /// Set a channel through which to send unsolicited responses as they arrive.
+    pub fn set_response_channel(&mut self, sender: mpsc::Sender<UnsolicitedResponse>) {
+        self.response_tx = Some(sender);
     }
 }
 

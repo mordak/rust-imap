@@ -1,10 +1,11 @@
 use imap_proto::{MailboxDatum, Response, ResponseCode};
 use lazy_static::lazy_static;
 use regex::Regex;
+use std::borrow::Cow::Borrowed;
 use std::collections::HashSet;
 use std::sync::mpsc;
 
-use super::error::{Error, ParseError, Result};
+use super::error::{Bad, Error, No, ParseError, Result};
 use super::types::*;
 
 lazy_static! {
@@ -348,6 +349,79 @@ pub fn parse_ids(
             }
         }
     }
+}
+
+/// Parse unsolicited responses from an IDLE response.
+///
+/// Anything parsed from this function will be sent down the given
+/// `unsolicited` channel if one is given.
+pub fn parse_idle<'a>(
+    mut lines: &'a [u8],
+    mut unsolicited: Option<&mut mpsc::Sender<UnsolicitedResponse>>,
+) -> (&'a [u8], Result<()>) {
+    while !lines.is_empty() {
+        match imap_proto::parser::parse_response(lines) {
+            Ok((
+                rest,
+                Response::Done {
+                    status,
+                    information,
+                    ..
+                },
+            )) => {
+                match status {
+                    // These are ok to ignore, just swallow them.
+                    // `Bye` means the server is going to hang up on us, but we should
+                    // also keep parsing responses, so keep parsing responses and
+                    // eventually the server will just hang up.
+                    // `Ok` is just Ok, so we keep parsing.
+                    // `PreAuth` is not going to happen here.
+                    imap_proto::Status::Bye
+                    | imap_proto::Status::Ok
+                    | imap_proto::Status::PreAuth => {
+                        lines = rest;
+                    }
+                    // For `No` and `Bad`, we return these to the caller
+                    // so they can do something with it.
+                    imap_proto::Status::No => {
+                        return (
+                            rest,
+                            Err(Error::No(No {
+                                information: information.unwrap_or(Borrowed("")).into(),
+                                // FIXME Should copy code? Do we even get codes with these?
+                                code: None,
+                            })),
+                        );
+                    }
+                    imap_proto::Status::Bad => {
+                        return (
+                            rest,
+                            Err(Error::Bad(Bad {
+                                information: information.unwrap_or(Borrowed("")).into(),
+                                code: None,
+                            })),
+                        );
+                    }
+                }
+            }
+            Ok((rest, any)) => {
+                lines = rest;
+                if let Some(ref mut unsolicited) = unsolicited {
+                    if let Some(data) = handle_unilateral(any, unsolicited) {
+                        return (rest, Err(data.into()));
+                    }
+                }
+            }
+            Err(nom::Err::Incomplete(_)) => return (lines, Ok(())),
+            Err(_) => {
+                return (
+                    lines,
+                    Err(Error::Parse(ParseError::Invalid(lines.to_vec()))),
+                );
+            }
+        }
+    }
+    (lines, Ok(()))
 }
 
 // Check if this is simply a unilateral server response (see Section 7 of RFC 3501).
