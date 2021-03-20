@@ -408,7 +408,7 @@ pub fn parse_idle<'a>(
                 // If we have a place to send parsed responses
                 // then send them, otherwise just consume them.
                 if let Some(ref mut unsolicited) = unsolicited {
-                    if let Some(data) = handle_unilateral(any, unsolicited) {
+                    if let Some(data) = try_handle_unilateral(any, unsolicited) {
                         return (rest, Err(data.into()));
                     }
                 }
