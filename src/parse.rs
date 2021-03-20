@@ -388,7 +388,6 @@ pub fn parse_idle<'a>(
                             rest,
                             Err(Error::No(No {
                                 information: information.unwrap_or(Borrowed("")).into(),
-                                // FIXME Should copy code? Do we even get codes with these?
                                 code: None,
                             })),
                         );
@@ -406,6 +405,8 @@ pub fn parse_idle<'a>(
             }
             Ok((rest, any)) => {
                 lines = rest;
+                // If we have a place to send parsed responses
+                // then send them, otherwise just consume them.
                 if let Some(ref mut unsolicited) = unsolicited {
                     if let Some(data) = handle_unilateral(any, unsolicited) {
                         return (rest, Err(data.into()));

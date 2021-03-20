@@ -107,48 +107,46 @@ impl<'a, T: Read + Write + 'a> Handle<'a, T> {
     /// This is necessary so that we can keep using the inner `Session` in `wait_keepalive`.
     fn wait_inner(&mut self, reconnect: bool) -> Result<WaitOutcome> {
         let mut v = Vec::new();
-        // FIXME: parse_idle returns remaining data, so capture it and update
-        loop {
-            let result = match self.session.readline(&mut v) {
+        let result = loop {
+            let rest = match self.session.readline(&mut v) {
                 Err(Error::Io(ref e))
                     if e.kind() == io::ErrorKind::TimedOut
                         || e.kind() == io::ErrorKind::WouldBlock =>
                 {
-                    if reconnect {
-                        self.terminate()?;
-                        self.init()?;
-                        return self.wait_inner(reconnect);
-                    }
-                    return Ok(WaitOutcome::TimedOut);
+                    break Ok(WaitOutcome::TimedOut);
                 }
                 Ok(_len) => {
                     match parse_idle(&v, self.response_tx.as_mut()) {
                         (rest, Ok(())) => {
-                            // FIXME: update remaining and continue
-                            // User hasn't asked for unsolicited responses, so
+                            // If the user hasn't asked for unsolicited responses
                             // return to them to let them know something changed.
                             if self.response_tx.is_none() {
-                                return Ok(WaitOutcome::MailboxChanged);
+                                break Ok(WaitOutcome::MailboxChanged);
                             }
+                            rest
                         }
-                        (rest, Err(r)) => {
-                            // FIXME: Handle incomplete, etc., and update
-                            // lines and stuff, and maybe bail if we get a
-                            // bad error?
-                            todo!()
-                        }
+                        (_rest, Err(r)) => break Err(r),
                     }
-                    todo!()
                 }
-                Err(r) => Err(r),
-            }?;
+                Err(r) => break Err(r),
+            };
 
-            // Handle Dovecot's imap_idle_notify_interval message
-            if v.eq_ignore_ascii_case(b"* OK Still here\r\n") {
+            // Update remaining data with unparsed data if needed.
+            if rest.is_empty() {
                 v.clear();
-            } else {
-                break Ok(result);
+            } else if rest.len() != v.len() {
+                v = rest.into();
             }
+        };
+
+        // Reconnect on timeout if needed
+        match (reconnect, result) {
+            (true, Ok(WaitOutcome::TimedOut)) => {
+                self.terminate()?;
+                self.init()?;
+                self.wait_inner(reconnect)
+            }
+            (_, result) => result,
         }
     }
 
@@ -158,6 +156,7 @@ impl<'a, T: Read + Write + 'a> Handle<'a, T> {
     }
 
     /// Set a channel through which to send unsolicited responses as they arrive.
+    /// TODO: Add detailed example.
     pub fn set_response_channel(&mut self, sender: mpsc::Sender<UnsolicitedResponse>) {
         self.response_tx = Some(sender);
     }
