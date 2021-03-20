@@ -160,6 +160,12 @@ impl<'a, T: Read + Write + 'a> Handle<'a, T> {
     pub fn set_response_channel(&mut self, sender: mpsc::Sender<UnsolicitedResponse>) {
         self.response_tx = Some(sender);
     }
+
+    /// Send responses received while IDLE to the existing IDLE Session
+    /// unsolicited_responses channel.
+    pub fn handle_unsolicited_responses(&mut self) {
+        self.set_response_channel(self.session.unsolicited_responses_tx.clone());
+    }
 }
 
 impl<'a, T: SetReadTimeout + Read + Write + 'a> Handle<'a, T> {
