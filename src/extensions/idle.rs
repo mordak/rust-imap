@@ -116,6 +116,11 @@ impl<'a, T: Read + Write + 'a> Handle<'a, T> {
                     break Ok(WaitOutcome::TimedOut);
                 }
                 Ok(_len) => {
+                    //  Handle Dovecot's imap_idle_notify_interval message
+                    if v.eq_ignore_ascii_case(b"* OK Still here\r\n") {
+                        v.clear();
+                        continue;
+                    }
                     match parse_idle(&v, self.response_tx.as_mut()) {
                         (rest, Ok(())) => {
                             // If the user hasn't asked for unsolicited responses
