@@ -3,6 +3,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use std::borrow::Cow::Borrowed;
 use std::collections::HashSet;
+use std::convert::TryFrom;
 use std::sync::mpsc;
 
 use super::error::{Bad, Error, No, ParseError, Result};
@@ -433,52 +434,13 @@ pub(crate) fn try_handle_unilateral<'a>(
     res: Response<'a>,
     unsolicited: &mut mpsc::Sender<UnsolicitedResponse>,
 ) -> Option<Response<'a>> {
-    match res {
-        Response::MailboxData(MailboxDatum::Status { mailbox, status }) => {
-            unsolicited
-                .send(UnsolicitedResponse::Status {
-                    mailbox: mailbox.into(),
-                    attributes: status,
-                })
-                .unwrap();
+    match UnsolicitedResponse::try_from(res) {
+        Ok(response) => {
+            unsolicited.send(response).ok();
+            None
         }
-        Response::MailboxData(MailboxDatum::Recent(n)) => {
-            unsolicited.send(UnsolicitedResponse::Recent(n)).unwrap();
-        }
-        Response::MailboxData(MailboxDatum::Flags(flags)) => {
-            unsolicited
-                .send(UnsolicitedResponse::Flags(
-                    flags
-                        .into_iter()
-                        .map(|s| Flag::from(s.to_string()))
-                        .collect(),
-                ))
-                .unwrap();
-        }
-        Response::MailboxData(MailboxDatum::Exists(n)) => {
-            unsolicited.send(UnsolicitedResponse::Exists(n)).unwrap();
-        }
-        Response::Expunge(n) => {
-            unsolicited.send(UnsolicitedResponse::Expunge(n)).unwrap();
-        }
-        Response::MailboxData(MailboxDatum::MetadataUnsolicited { mailbox, values }) => {
-            unsolicited
-                .send(UnsolicitedResponse::Metadata {
-                    mailbox: mailbox.to_string(),
-                    metadata_entries: values.iter().map(|s| s.to_string()).collect(),
-                })
-                .unwrap();
-        }
-        Response::Vanished { earlier, uids } => {
-            unsolicited
-                .send(UnsolicitedResponse::Vanished { earlier, uids })
-                .unwrap();
-        }
-        res => {
-            return Some(res);
-        }
+        Err(unhandled) => Some(unhandled),
     }
-    None
 }
 
 #[cfg(test)]
