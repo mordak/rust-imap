@@ -366,6 +366,7 @@ pub fn parse_idle<'a>(
                 Response::Done {
                     status,
                     information,
+                    code,
                     ..
                 },
             )) => {
@@ -388,7 +389,7 @@ pub fn parse_idle<'a>(
                             rest,
                             Err(Error::No(No {
                                 information: information.unwrap_or(Borrowed("")).into(),
-                                code: None,
+                                code: code.map(|c| c.into_owned()),
                             })),
                         );
                     }
@@ -397,7 +398,7 @@ pub fn parse_idle<'a>(
                             rest,
                             Err(Error::Bad(Bad {
                                 information: information.unwrap_or(Borrowed("")).into(),
-                                code: None,
+                                code: code.map(|c| c.into_owned()),
                             })),
                         );
                     }
