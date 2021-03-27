@@ -124,28 +124,6 @@ pub enum UnsolicitedResponse {
         information: Option<String>,
     },
 
-    /// An unsolicited `NO` response.
-    ///
-    /// The `NO` response may have an optional `ResponseCode` that provides additional
-    /// information, per [RFC3501](https://tools.ietf.org/html/rfc3501#section-7.1.2).
-    No {
-        /// Optional response code.
-        code: Option<ResponseCode<'static>>,
-        /// Information text that may be presented to the user.
-        information: Option<String>,
-    },
-
-    /// An unsolicited `BAD` response.
-    ///
-    /// The `BAD` response may have an optional `ResponseCode` that provides additional
-    /// information, per [RFC3501](https://tools.ietf.org/html/rfc3501#section-7.1.3).
-    Bad {
-        /// Optional response code.
-        code: Option<ResponseCode<'static>>,
-        /// Information text that may be presented to the user.
-        information: Option<String>,
-    },
-
     /// An unsolicited `BYE` response.
     ///
     /// The `BYE` response may have an optional `ResponseCode` that provides additional
@@ -210,22 +188,6 @@ impl<'a> TryFrom<Response<'a>> for UnsolicitedResponse {
                 code,
                 information,
             } => Ok(UnsolicitedResponse::Ok {
-                code: code.map(|c| c.into_owned()),
-                information: information.map(|s| s.to_string()),
-            }),
-            Response::Data {
-                status: Status::Bad,
-                code,
-                information,
-            } => Ok(UnsolicitedResponse::Bad {
-                code: code.map(|c| c.into_owned()),
-                information: information.map(|s| s.to_string()),
-            }),
-            Response::Data {
-                status: Status::No,
-                code,
-                information,
-            } => Ok(UnsolicitedResponse::No {
                 code: code.map(|c| c.into_owned()),
                 information: information.map(|s| s.to_string()),
             }),
