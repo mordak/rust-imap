@@ -15,8 +15,11 @@ use std::time::Duration;
 ///
 /// The handle blocks using the [`IDLE` command](https://tools.ietf.org/html/rfc2177#section-3)
 /// specificed in [RFC 2177](https://tools.ietf.org/html/rfc2177) until the underlying server state
-/// changes in some way. While idling does inform the client what changes happened on the server,
-/// this implementation will currently just block until _anything_ changes, and then notify the
+/// changes in some way.
+///
+/// Each of the `wait` functions takes a callback function which receives any responses that arrive
+/// on the channel while IDLE. The function returns whether or not to `Continue` or `Stop`
+/// receiving callbacks.
 ///
 /// Note that the server MAY consider a client inactive if it has an IDLE command running, and if
 /// such a server has an inactivity timeout it MAY log the client off implicitly at the end of its
@@ -182,7 +185,7 @@ impl<'a, T: SetReadTimeout + Read + Write + 'a> Handle<'a, T> {
         self.keepalive = interval;
     }
 
-    /// Block until the given call back returns `Stop`, or until an unhandled
+    /// Block until the given callback returns `Stop`, or until an unhandled
     /// response arrives on the IDLE channel.
     ///
     /// This method differs from [`Handle::wait`] in that it will periodically refresh the IDLE
@@ -206,7 +209,8 @@ impl<'a, T: SetReadTimeout + Read + Write + 'a> Handle<'a, T> {
         self.timed_wait(keepalive, true, callback).map(|_| ())
     }
 
-    /// Block until the selected mailbox changes, or until the given amount of time has expired.
+    /// Block until the given amount of time has elapsed, or the given callback
+    /// returns `Stop`, or until an unhandled response arrives on the IDLE channel.
     #[deprecated(note = "use wait_with_timeout instead")]
     pub fn wait_timeout<F>(self, timeout: Duration, callback: F) -> Result<()>
     where
@@ -215,7 +219,8 @@ impl<'a, T: SetReadTimeout + Read + Write + 'a> Handle<'a, T> {
         self.wait_with_timeout(timeout, callback).map(|_| ())
     }
 
-    /// Block until the selected mailbox changes, or until the given amount of time has expired.
+    /// Block until the given amount of time has elapsed, or the given callback
+    /// returns `Stop`, or until an unhandled response arrives on the IDLE channel.
     pub fn wait_with_timeout<F>(self, timeout: Duration, callback: F) -> Result<WaitOutcome>
     where
         F: FnMut(UnsolicitedResponse) -> CallbackAction,
