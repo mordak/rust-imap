@@ -17,9 +17,29 @@ use std::time::Duration;
 /// specificed in [RFC 2177](https://tools.ietf.org/html/rfc2177) until the underlying server state
 /// changes in some way.
 ///
-/// Each of the `wait` functions takes a callback function which receives any responses that arrive
-/// on the channel while IDLE. The function returns whether or not to `Continue` or `Stop`
-/// receiving callbacks.
+/// Each of the `wait` functions takes a callback function which receives any responses
+/// that arrive on the channel while IDLE. The callback function implements whatever
+/// logic is needed to handle the IDLE response, and then returns a [`CallbackAction`]
+/// to `Continue` or `Stop` listening on the channel.
+/// For users that want the IDLE to exit on any change (the behavior proior to version 3.0),
+/// a convenience callback function `callback_stop` is provided.
+///
+/// ```no_run
+/// # use native_tls::TlsConnector;
+/// use imap::extensions::idle;
+/// let ssl_conn = TlsConnector::builder().build().unwrap();
+/// let client = imap::connect(("example.com", 993), "example.com", &ssl_conn)
+///     .expect("Could not connect to imap server");
+/// let mut imap = client.login("user@example.com", "password")
+///     .expect("Could not authenticate");
+/// imap.select("INBOX")
+///     .expect("Could not select mailbox");
+///
+/// let idle = imap.idle().expect("Could not IDLE");
+///
+/// // Exit on any mailbox change
+/// let result = idle.wait_keepalive(idle::callback_stop);
+/// ```
 ///
 /// Note that the server MAY consider a client inactive if it has an IDLE command running, and if
 /// such a server has an inactivity timeout it MAY log the client off implicitly at the end of its
@@ -53,6 +73,11 @@ pub enum CallbackAction {
     Continue,
     /// Stop receiving responses, and exit the IDLE wait.
     Stop,
+}
+
+/// A convenience function to always cause the IDLE handler to exit on any change.
+pub fn callback_stop(_response: UnsolicitedResponse) -> CallbackAction {
+    CallbackAction::Stop
 }
 
 /// Must be implemented for a transport in order for a `Session` using that transport to support
